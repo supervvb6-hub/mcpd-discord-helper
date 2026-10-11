@@ -7,8 +7,8 @@
 "runs-on": "ubuntu-latest",
 "timeout-minutes": 20,
 "steps": [
-{ "uses": "actions/checkout@v4" },
-{ "uses": "actions/setup-node@v4", "with": { "node-version": 20 } },
+{ "uses": "actions/checkout@v5" },
+{ "uses": "actions/setup-node@v5", "with": { "node-version": 24 } },
 { "name": "Read new evidence posts", "run": "node relay.js",
 "env": { "DISCORD_TOKEN": "${{ secrets.DISCORD_TOKEN }}", "SHEET_URL": "${{ secrets.SHEET_URL }}", "SHEET_KEY": "${{ secrets.SHEET_KEY }}" } },
 { "name": "Keep the schedule awake", "if": "always()",
