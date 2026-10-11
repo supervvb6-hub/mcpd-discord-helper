@@ -98,6 +98,15 @@ async function main() {
     if (page.length < 100) break;
   }
 
+  // Discord hides what's in posts (text AND pictures) unless "Message Content Intent" is on
+  const people = posts.filter((p) => !(p.author && p.author.bot) && p.type === 0);
+  const hidden = people.filter((p) => !p.content && !(p.attachments || []).length && !(p.embeds || []).length && !(p.sticker_items || []).length);
+  if (people.length && hidden.length === people.length)
+    throw new Stop('Discord is hiding the posts\' contents and pictures from the bot. Developer Portal → your app → Bot → turn ON "Message Content Intent" → Save Changes. (The posts are not lost: they are read on the next run after that.)');
+  const notImg = people.filter((p) => (p.attachments || []).length && !(p.attachments || []).some(isImage))
+    .map((p) => (p.attachments || []).map((a) => a.content_type || a.filename).join(', '));
+  if (notImg.length) console.log('Posts with files that are not PNG/JPG pictures (skipped): ' + notImg.join(' | '));
+
   let lastDone = state.lastId, added = 0, review = 0, read = 0, busy = false;
   for (const p of posts) {
     const imgs = (p.attachments || []).filter(isImage);
@@ -124,7 +133,7 @@ async function main() {
     lastDone = p.id;
   }
 
-  const summary = `Last run: ${posts.length} new post(s), ${read} with screenshots · ${added} row(s) added for review · ` +
+  const summary = `Last run (${new Date().toUTCString()}): ${posts.length} new post(s), ${read} with screenshots · ${added} row(s) added for review · ` +
                   `${review} sent to the "Discord Evidence" tab${busy ? ' · spreadsheet was busy, the rest waits for the next run' : ''}`;
   await sheet({ action: 'done', lastId: lastDone, summary });
   console.log(summary);
