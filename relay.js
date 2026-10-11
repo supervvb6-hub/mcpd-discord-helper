@@ -87,16 +87,44 @@ async function main() {
     return;
   }
 
-  // new posts since last time, oldest first
-  let after = state.lastId, posts = [];
-  while (posts.length < MAX_POSTS) {
-    const page = await discord('GET', `/channels/${channel}/messages?limit=100&after=${after}`);
-    if (!page || !page.length) break;
-    page.sort((a, b) => (big(a.id) < big(b.id) ? -1 : 1));
-    posts = posts.concat(page);
-    after = page[page.length - 1].id;
-    if (page.length < 100) break;
+  // where to look: a normal channel, or — for a FORUM like #seizure-reporting — every monthly post (thread)
+  // in it that could have something new. A new month's thread is picked up by itself.
+  let sources = [{ id: channel, name: ch.name }];
+  if (ch.type === 15 || ch.type === 16) {                              // forum / media channel
+    const since = Number((big(state.lastId) >> 22n) + 1420070400000n);  // time of the last post we handled
+    const found = {};
+    const act = await discord('GET', `/guilds/${guild}/threads/active`);
+    (act && act.threads || []).filter((t) => t.parent_id === channel).forEach((t) => { found[t.id] = t.name; });
+    // threads that went quiet and were archived since last time (only matters if runs were missed)
+    try {
+      const arc = await discord('GET', `/channels/${channel}/threads/archived/public?limit=50`);
+      (arc && arc.threads || []).forEach((t) => {
+        const at = Date.parse((t.thread_metadata || {}).archive_timestamp || 0);
+        if (at > since) found[t.id] = t.name;
+      });
+    } catch (err) { console.log('Archived threads not checked: ' + err.message); }
+    sources = Object.keys(found).map((id) => ({ id, name: found[id] }));
+    console.log(`Forum #${ch.name}: checking ${sources.map((x) => '"' + x.name + '"').join(', ') || 'no open threads'}`);
   }
+
+  // new posts since last time, from every source, oldest first
+  let posts = [], cutoff = null;
+  for (const src of sources) {
+    let after = state.lastId, got = 0;
+    while (true) {
+      const page = await discord('GET', `/channels/${src.id}/messages?limit=100&after=${after}`);
+      if (!page || !page.length) break;
+      page.sort((a, b) => (big(a.id) < big(b.id) ? -1 : 1));
+      page.forEach((m) => { m.channel_id = m.channel_id || src.id; });
+      posts = posts.concat(page);
+      got += page.length;
+      after = page[page.length - 1].id;
+      if (page.length < 100) break;
+      if (got >= MAX_POSTS) { if (cutoff === null || big(after) < big(cutoff)) cutoff = after; break; }   // rest next run
+    }
+  }
+  posts.sort((a, b) => (big(a.id) < big(b.id) ? -1 : 1));
+  if (cutoff !== null) posts = posts.filter((m) => big(m.id) <= big(cutoff));
 
   // Discord hides what's in posts (text AND pictures) unless "Message Content Intent" is on
   const people = posts.filter((p) => !(p.author && p.author.bot) && p.type === 0);
@@ -116,7 +144,7 @@ async function main() {
       const r = await sheet({
         action: 'post', guild, nick,
         msg: {
-          id: p.id, timestamp: p.timestamp,
+          id: p.id, channel_id: p.channel_id, timestamp: p.timestamp,
           author: { id: p.author.id, username: p.author.username, global_name: p.author.global_name },
           attachments: imgs.map((a) => ({ url: a.url, filename: a.filename, content_type: a.content_type })),
         },
@@ -125,7 +153,7 @@ async function main() {
         if (r.busy) { busy = true; break; }                          // spreadsheet busy → rest next run
         throw new Stop('Spreadsheet: ' + r.error);
       }
-      if (r.react) await react(channel, p.id, r.react);
+      if (r.react) await react(p.channel_id || channel, p.id, r.react);
       added += r.added || 0;
       if (r.review) review++;
       read++;
