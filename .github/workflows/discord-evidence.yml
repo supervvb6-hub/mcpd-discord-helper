@@ -1,1 +1,18 @@
-
+{
+"name": "Discord evidence",
+"on": { "schedule": [ { "cron": "*/10 * * * *" } ], "workflow_dispatch": {} },
+"concurrency": { "group": "discord-evidence", "cancel-in-progress": false },
+"permissions": { "contents": "write" },
+"jobs": { "read": {
+"runs-on": "ubuntu-latest",
+"timeout-minutes": 20,
+"steps": [
+{ "uses": "actions/checkout@v4" },
+{ "uses": "actions/setup-node@v4", "with": { "node-version": 20 } },
+{ "name": "Read new evidence posts", "run": "node relay.js",
+"env": { "DISCORD_TOKEN": "${{ secrets.DISCORD_TOKEN }}", "SHEET_URL": "${{ secrets.SHEET_URL }}", "SHEET_KEY": "${{ secrets.SHEET_KEY }}" } },
+{ "name": "Keep the schedule awake", "if": "always()",
+"run": "last=$(git log -1 --format=%ct); if [ $(( $(date +%s) - last )) -gt $(( 40 * 86400 )) ]; then date -u > .keepalive; git config user.name 'github-actions[bot]'; git config user.email '41898282+github-actions[bot]@users.noreply.github.com'; git add .keepalive; git commit -m 'Keep the schedule awake'; git push; fi" }
+]
+} }
+}
